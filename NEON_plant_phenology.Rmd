@@ -1,0 +1,377 @@
+---
+title: "Plotting and fitting plant phylogeny data"
+author: "Madeleine Bonsma-Fisher and Ahmed Hasan"
+---
+
+## Introduction
+
+*Phenology* is the study of periodic or cyclic natural phenomena, 
+and this dataset contains observations of the seasonal cycles of plants at three NEON sites in the US:
+Blandy Experimental Farm ([BLAN](https://www.neonscience.org/field-sites/field-sites-map/BLAN)) 
+and the Smithsonian Conservation Biology Institute
+([SCBI](https://www.neonscience.org/field-sites/field-sites-map/scbi)) in Virginia, and the 
+Smithsonian Environmental Research Center
+([SERC](https://www.neonscience.org/field-sites/field-sites-map/serc)) in Maryland. 
+
+In this tutorial, we'll plot some phenology data and fit an oscillatory model to determine when different species get and lose their leaves. 
+
+## Load and organize data
+
+The first part of this tutorial is a data cleanup from https://www.neonscience.org/neon-plant-pheno-data-r. There are two data files we'll be combining: the first (`phe_perindividual.csv`) contains data for each individual organism observed such as its location and scientific name, and the second (`phe_statusintensity.csv`) contains observations of several phenophases and their intensity.
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+
+# load the two data files 
+ind <- read.csv('NEON-pheno-temp-timeseries/pheno/phe_perindividual.csv', 
+        stringsAsFactors = FALSE )
+
+status <- read.csv('NEON-pheno-temp-timeseries/pheno/phe_statusintensity.csv', 
+        stringsAsFactors = FALSE)
+
+names(ind)
+
+names(status)
+```
+
+We'll remove the UID field which uniquely identifies each row --- we don't need to uniquely identify entries.
+
+```{r}
+ind <- select(ind,-uid)
+status <- select (status, -uid)
+```
+
+Next, we remove duplicates that result from stacking tables over many months - we don't need duplicate observations from the same date, tree, and site.
+
+```{r}
+ind_noD <- distinct(ind)
+nrow(ind) - nrow(ind_noD)  # how many rows were removed
+```
+
+```{r}
+status_noD<-distinct(status)
+nrow(status) - nrow(status_noD) # how many rows were removed
+```
+
+Some of the columns in `status_noD` that have the same name as those in `ind_noD` should be renamed so that we can join the two tables and keep those fields separate. 
+
+```{r}
+# where is there an intersection of names
+sameName <- intersect(names(status_noD), names(ind_noD))
+sameName
+
+# rename status editedDate
+status_noD <- rename(status_noD, editedDateStat=editedDate, 
+        measuredByStat=measuredBy, recordedByStat=recordedBy, 
+        samplingProtocolVersionStat=samplingProtocolVersion, 
+        remarksStat=remarks, dataQFStat=dataQF)
+```
+
+```{r}
+# convert column to date class
+ind_noD$editedDate <- as.Date(ind_noD$editedDate)
+str(ind_noD$editedDate)
+
+status_noD$date <- as.Date(status_noD$date)
+str(status_noD$date)
+```
+
+```{r}
+# retain only the max of the date for each individualID
+ind_last <- ind_noD %>%
+    group_by(individualID) %>%
+    filter(editedDate==max(editedDate))
+
+# oh wait, duplicate dates, retain only one
+ind_lastnoD <- ind_last %>%
+    group_by(editedDate, individualID) %>%
+    filter(row_number()==1)
+```
+
+Remove these two columns that will be duplicated in the `ind_noD` data frame.
+
+```{r}
+status_noD <- select (status_noD, -taxonID, -scientificName)
+```
+
+Join the dataframes:
+
+```{r}
+# Create a new dataframe "phe_ind" with all the data from status and some from ind_lastnoD
+phe_ind <- left_join(status_noD, ind_lastnoD)
+
+glimpse(phe_ind)
+```
+
+```{r}
+# Some columns look like they might only have NAs. Check this:
+phe_ind %>% 
+  count(dayOfYear, dataQF, dataQFStat, samplingProtocolVersion, samplingProtocolVersionStat, vstTag,
+        sampleElevation, sampleElevationUncertainty, geodeticDatum, coordinateUncertainty, elevationUncertainty)
+
+# remove columns that are only NA
+phe_ind <- phe_ind %>% 
+  select(-dayOfYear, -dataQF, -dataQFStat, -samplingProtocolVersionStat, -samplingProtocolVersion, -vstTag, -sampleElevation,
+         -sampleElevationUncertainty, -geodeticDatum, -coordinateUncertainty, -elevationUncertainty, -sampleLatitude,
+         -sampleLongitude, -sampleCoordinateUncertainty)
+```
+
+Let's look at just the "Leaves" phenophase for "Deciduous broadleaf" plants.
+
+```{r}
+plant_pheno <- 
+   phe_ind %>% 
+  filter(phenophaseName == "Leaves" & growthForm == "Deciduous broadleaf")
+```
+
+Many of the columns aren't that relevant for us, but some that we're definitely interested in are `date`, `phenophaseIntensity`, and `scientificName`. Let's take a look at what kind of factors we have in the last two columns.
+
+```{r}
+plant_pheno %>% 
+  count(scientificName)
+
+plant_pheno %>% 
+  count(phenophaseIntensity)
+```
+
+These are 7 species of tree / shrub in this subsetted dataset. Feel free to look up what the common names are for each of these; for example, *Liriodendron tulipifera*, the tulip tree, can be found along the US east coast as well as in Southern Ontario.
+
+![Lipidoptera tulipifera, by Jean-Pol GRANDMONT - Own work, CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=9873223](image/Liriodendron_tulipifera.png)
+
+We're going to look at how the phenophase intensity for "Leaves" changes over the course of time. Let's look at the structure of the `phenophaseIntensity` column:
+
+```{r}
+str(plant_pheno$phenophaseIntensity)
+```
+
+We want to be able to use these as numbers, and since they're binned in windows of percentage, we can manually convert the bin label to the numeric midpoint of the bin. This is approximate, and there are multiple valid choices you could make for how to assign a number to each bin. 
+
+```{r}
+# convert phenophase intensities to numbers for plotting
+
+# create new column called phenophaseIntensityMidpoint
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = phenophaseIntensity)
+
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == ">= 95%", 
+                                          (1+0.95)/2, phenophaseIntensityMidpoint))
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "25-49%", 
+                                          (0.49+0.20)/2, phenophaseIntensityMidpoint))
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "< 5%", 
+                                          0.05/2, phenophaseIntensityMidpoint))
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "50-74%", 
+                                          (0.74+0.5)/2, phenophaseIntensityMidpoint))
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "5-24%", 
+                                          (0.24+0.05)/2, phenophaseIntensityMidpoint))
+plant_pheno <- plant_pheno %>% 
+  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "75-94%", 
+                                          (0.94+0.75)/2, phenophaseIntensityMidpoint))
+# convert to numeric type explicitly
+plant_pheno$phenophaseIntensityMidpoint <- as.numeric(plant_pheno$phenophaseIntensityMidpoint )
+
+str(plant_pheno$phenophaseIntensityMidpoint)
+```
+
+## Plotting and fitting the data
+
+```{r, warning=FALSE}
+ggplot(plant_pheno, 
+       aes(x = date, y = phenophaseIntensityMidpoint, color = scientificName)) +
+         geom_point() 
+```
+
+The pattern we would expect is already visible in this first plot - the leaves come out in the spring, 
+then disappear again in October. But there might be differences between species and between individuals 
+in a species. One way we could try to assess this is to fit the same model to subgroups of the data and
+then compare the fitted parameters to see if there are differences. 
+
+## Fit an oscillatory model to the data
+
+Let's try to fit a sine wave to the phenophase intensity. A generic sine wave has four parameters:
+
+$$y = A \text{sin}(kx - b) + c$$
+
+```{r}
+# plot a sine wave
+
+x <- seq(0, 3, 0.01)
+A <- 1
+k <- 2*pi
+b <- 0
+c <- 0
+
+qplot(x, A*sin(k*x-b)+c) +
+  geom_line()
+
+```
+
+Let's calculate the mean phenophase intensity across individuals in the same species.
+
+```{r}
+plant_pheno_species_mean <- plant_pheno %>% 
+  filter(!is.na(phenophaseIntensityMidpoint)) %>% 
+  group_by(scientificName, date) %>% 
+  summarise(phenophaseIntensityBySpecies = mean(phenophaseIntensityMidpoint))
+
+head(plant_pheno_species_mean)
+```
+
+```{r}
+ggplot(plant_pheno_species_mean, aes(x=date, y=phenophaseIntensityBySpecies, colour = scientificName)) +
+  geom_point()
+```
+
+Now we have seven timeseries, one for each species. Let's check to see if there are any observations that are doubled for a given date --- we want single observations per species here.
+
+```{r}
+# check to see if there is ever more than one observation for a given date - want nothing returned here
+
+plant_pheno_species_mean %>% 
+  group_by(scientificName) %>% 
+  count(date) %>% 
+  filter(n > 1)
+```
+
+Create a test function to get a rough idea for the parameters
+
+```{r}
+dates = plant_pheno_species_mean %>% 
+  arrange(date) %>% 
+  select(date)
+
+subtract_dates <- function(date1, date2) {
+  result <- date1 - date2
+}
+
+dates_numeric <- mapply(subtract_dates,
+                 dates$date, # first argument in subtract_dates function 
+                 dates$date[1]) # second argument in subtract_dates function - the first date
+
+# add the numeric dates to the dataframe
+plant_pheno_species_mean$date_numeric <- mapply(subtract_dates, 
+                                                plant_pheno_species_mean$date,
+                                                dates$date[1])
+
+# period = 365 days
+# wavenumber of sine function = 2 * pi/lambda 
+
+sine_model <- function(x, amplitude, wavelength, phase, offset) {
+  return(amplitude*sin(2*pi/wavelength*x + phase) + offset)
+}
+
+guess_curve <- sine_model(dates_numeric, 0.5, 365, 0.5, 0.5)
+```
+
+
+```{r}
+qplot(x = dates$date, y = guess_curve) +
+  geom_point(data = plant_pheno_species_mean, 
+       aes(x = date, y = phenophaseIntensityBySpecies, colour = scientificName))
+```
+
+
+```{r}
+
+# Make a range of b parameter values to try
+b_vals <- seq(0.2, 0.8, by = 0.01)
+
+tulip_tree <- plant_pheno_species_mean %>%
+  filter(scientificName == "Liriodendron tulipifera L.") 
+
+# use the function 'sapply' to loop over b_vals list
+resids_sq <- sapply(b_vals, function(b) {
+    prediction <- 0.5*sin(2*pi/365*tulip_tree$date_numeric + b) +0.5
+    residuals <- prediction - tulip_tree$phenophaseIntensityBySpecies
+    sum(residuals^2)
+    
+})
+```
+
+```{r}
+qplot(b_vals, resids_sq)
+```
+
+We can see visually that the minimum is around $b = 0.5$, but to extract that number 
+from the list we can use the function `which` as before:
+
+```{r}
+best_fit <- which(resids_sq == min(resids_sq))
+b_fit <- b_vals[best_fit] 
+b_fit
+```
+
+Finally, let's plot the fit against the original data:
+
+```{r}
+ggplot(data = tulip_tree, aes(x = date, y = phenophaseIntensityBySpecies)) +
+  geom_point() + 
+  geom_point(aes(x = date, y = 0.5*sin(2*pi/365*tulip_tree$date_numeric + b_fit) +0.5, colour = 'b'))
+```
+
+Not bad! To wrap up, let's compare the fits for the rest of the species.
+
+```{r}
+# Make a range of b parameter values to try
+b_vals <- seq(0.1, 0.8, by = 0.015)
+
+# create a function that does least squares for this model
+least_squares <- function(df, b_vals) {
+  resids_sq <- sapply(b_vals, function(b) {
+    prediction <- 0.5*sin(2*pi/365*df$date_numeric + b) +0.5
+    residuals <- prediction - df$phenophaseIntensityBySpecies
+    sum(residuals^2)
+    })
+  return(data.frame(b_vals, resids_sq))
+}
+
+# create a data frame that contains the residuals grouped by species
+resids_sq_all_species <- plant_pheno_species_mean %>%
+  group_by(scientificName) %>% 
+  do(data.frame(val=least_squares(., b_vals)))
+
+resids_sq_all_species
+```
+
+```{r}
+ggplot(resids_sq_all_species, aes(x=val.b_vals, y = val.resids_sq, colour = scientificName)) +
+  geom_point()
+```
+Get the best fit $b$ value for each species:
+
+```{r}
+b_df <- resids_sq_all_species %>% 
+  group_by(scientificName) %>% 
+  summarize(fit = b_vals[which(val.resids_sq== min(val.resids_sq))])
+
+b_df
+```
+
+```{r}
+
+calculate_fit_curve <- function(df) {
+  y <- 0.5*sin(2*pi/365*df$date_numeric + df$fit) +0.5
+  date <- df$date
+  return(data.frame(date, y))
+}
+
+# add fits to data frame
+plant_pheno_species_mean <- inner_join(plant_pheno_species_mean, b_df)
+
+plant_pheno_species_mean
+
+fit_curves <- plant_pheno_species_mean %>% 
+  group_by(scientificName) %>% 
+  do(data.frame(calculate_fit_curve(.)))
+
+fit_curves
+
+ggplot(data = plant_pheno_species_mean, aes(x = date, y = phenophaseIntensityBySpecies, 
+                                            colour = scientificName)) +
+  geom_point() + 
+  geom_point(data= fit_curves, aes(x = date, y = y, colour = scientificName))
+```
