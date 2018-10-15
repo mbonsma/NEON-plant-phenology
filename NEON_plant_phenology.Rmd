@@ -17,54 +17,54 @@ In this tutorial, we'll plot some phenology data and fit an oscillatory model to
 
 ## Load and organize data
 
+### Clean up and merge the two data frames
+
 The first part of this tutorial is a data cleanup from https://www.neonscience.org/neon-plant-pheno-data-r. There are two data files we'll be combining: the first (`phe_perindividual.csv`) contains data for each individual organism observed such as its location and scientific name, and the second (`phe_statusintensity.csv`) contains observations of several phenophases and their intensity.
 
 ```{r, warning=FALSE, message=FALSE}
 library(tidyverse)
 
 # load the two data files 
-ind <- read.csv('NEON-pheno-temp-timeseries/pheno/phe_perindividual.csv', 
-        stringsAsFactors = FALSE )
+ind <- read_csv('NEON-pheno-temp-timeseries/pheno/phe_perindividual.csv')
 
-status <- read.csv('NEON-pheno-temp-timeseries/pheno/phe_statusintensity.csv', 
-        stringsAsFactors = FALSE)
+status <- read_csv('NEON-pheno-temp-timeseries/pheno/phe_statusintensity.csv')
 
 names(ind)
 
 names(status)
 ```
 
-We'll remove the UID field which uniquely identifies each row --- we don't need to uniquely identify entries.
+We'll remove the UID field which uniquely identifies each row -- we don't need to uniquely identify entries.
 
 ```{r}
-ind <- select(ind,-uid)
-status <- select (status, -uid)
+ind <- select(ind, -uid)
+status <- select(status, -uid)
 ```
 
-Next, we remove duplicates that result from stacking tables over many months - we don't need duplicate observations from the same date, tree, and site.
+Next, we remove duplicates that result from stacking tables over many months -- we don't need duplicate observations from the same date, tree, and site.
 
 ```{r}
 ind_noD <- distinct(ind)
-nrow(ind) - nrow(ind_noD)  # how many rows were removed
+nrow(ind) - nrow(ind_noD) # how many rows were removed
 ```
 
 ```{r}
-status_noD<-distinct(status)
+status_noD <- distinct(status)
 nrow(status) - nrow(status_noD) # how many rows were removed
 ```
 
 Some of the columns in `status_noD` that have the same name as those in `ind_noD` should be renamed so that we can join the two tables and keep those fields separate. 
 
 ```{r}
-# where is there an intersection of names
+# where is there an intersection of names?
 sameName <- intersect(names(status_noD), names(ind_noD))
 sameName
 
 # rename status editedDate
-status_noD <- rename(status_noD, editedDateStat=editedDate, 
-        measuredByStat=measuredBy, recordedByStat=recordedBy, 
-        samplingProtocolVersionStat=samplingProtocolVersion, 
-        remarksStat=remarks, dataQFStat=dataQF)
+status_noD <- rename(status_noD, editedDateStat = editedDate, 
+        measuredByStat = measuredBy, recordedByStat = recordedBy, 
+        samplingProtocolVersionStat = samplingProtocolVersion, 
+        remarksStat = remarks, dataQFStat = dataQF)
 ```
 
 ```{r}
@@ -80,18 +80,18 @@ str(status_noD$date)
 # retain only the max of the date for each individualID
 ind_last <- ind_noD %>%
     group_by(individualID) %>%
-    filter(editedDate==max(editedDate))
+    filter(editedDate == max(editedDate))
 
 # oh wait, duplicate dates, retain only one
 ind_lastnoD <- ind_last %>%
     group_by(editedDate, individualID) %>%
-    filter(row_number()==1)
+    filter(row_number() == 1)
 ```
 
 Remove these two columns that will be duplicated in the `ind_noD` data frame.
 
 ```{r}
-status_noD <- select (status_noD, -taxonID, -scientificName)
+status_noD <- select(status_noD, -taxonID, -scientificName)
 ```
 
 Join the dataframes:
@@ -103,24 +103,40 @@ phe_ind <- left_join(status_noD, ind_lastnoD)
 glimpse(phe_ind)
 ```
 
+### Dealing with NAs
+
+Some columns look like they might only have NAs. We can check the proportion of NAs by first summing the number of NA values per column with `map_df()` from the `purrr` package, followed by standard `dplyr`/`tidyr` operations to reshape the data frame. 
+
 ```{r}
 # Some columns look like they might only have NAs. Check this:
 phe_ind %>% 
-  count(dayOfYear, dataQF, dataQFStat, samplingProtocolVersion, samplingProtocolVersionStat, vstTag,
-        sampleElevation, sampleElevationUncertainty, geodeticDatum, coordinateUncertainty, elevationUncertainty)
-
-# remove columns that are only NA
-phe_ind <- phe_ind %>% 
-  select(-dayOfYear, -dataQF, -dataQFStat, -samplingProtocolVersionStat, -samplingProtocolVersion, -vstTag, -sampleElevation,
-         -sampleElevationUncertainty, -geodeticDatum, -coordinateUncertainty, -elevationUncertainty, -sampleLatitude,
-         -sampleLongitude, -sampleCoordinateUncertainty)
+  map_df(~ sum(is.na(.))) %>% # counts NA values in each column
+  gather(column, values) %>% # reshapes data frame
+  mutate(proportion_na = values / nrow(phe_ind)) %>% 
+  arrange(desc(proportion_na)) # arrange in descending order of proportion_na
 ```
 
+Now that we've identified which columns are only NA, let's remove them from our dataset. `dplyr` offers a helpful function called `select_if()` that allows us to only keep columns satisfying a certain condition. 
+
+```{r}
+# first, define a function that checks whether not all elements are NA
+not_all_na <- function(x) {
+  return(!all(is.na(x))) # if all of the vector is just NA, return FALSE
+}
+
+# select_if is a version of select that allows us to drop all-NA columns using the above function
+phe_ind <- phe_ind %>% 
+  select_if(not_all_na)
+
+glimpse(phe_ind)
+```
+
+### Subsetting the dataset
+ 
 Let's look at just the "Leaves" phenophase for "Deciduous broadleaf" plants.
 
 ```{r}
-plant_pheno <- 
-   phe_ind %>% 
+plant_pheno <- phe_ind %>% 
   filter(phenophaseName == "Leaves" & growthForm == "Deciduous broadleaf")
 ```
 
@@ -144,7 +160,7 @@ We're going to look at how the phenophase intensity for "Leaves" changes over th
 str(plant_pheno$phenophaseIntensity)
 ```
 
-We want to be able to use these as numbers, and since they're binned in windows of percentage, we can manually convert the bin label to the numeric midpoint of the bin. This is approximate, and there are multiple valid choices you could make for how to assign a number to each bin. 
+We want to be able to use these as numbers, and since they're binned in windows of percentage, we can manually convert the bin label to the numeric midpoint of the bin. This is approximate, and there are multiple valid choices you could make for how to assign a number to each bin. To do this, we'll make use of the `case_when()` function, which allows us to `mutate()` on multiple conditions.
 
 ```{r}
 # convert phenophase intensities to numbers for plotting
@@ -154,25 +170,19 @@ plant_pheno <- plant_pheno %>%
   mutate(phenophaseIntensityMidpoint = phenophaseIntensity)
 
 plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == ">= 95%", 
-                                          (1+0.95)/2, phenophaseIntensityMidpoint))
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "25-49%", 
-                                          (0.49+0.20)/2, phenophaseIntensityMidpoint))
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "< 5%", 
-                                          0.05/2, phenophaseIntensityMidpoint))
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "50-74%", 
-                                          (0.74+0.5)/2, phenophaseIntensityMidpoint))
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "5-24%", 
-                                          (0.24+0.05)/2, phenophaseIntensityMidpoint))
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = ifelse(phenophaseIntensity == "75-94%", 
-                                          (0.94+0.75)/2, phenophaseIntensityMidpoint))
+  mutate(
+    phenophaseIntensityMidpoint = case_when(
+      phenophaseIntensity == "< 5%" ~ 0.05 / 2,
+      phenophaseIntensity == "5-24%" ~ (0.05 + 0.24) / 2,
+      phenophaseIntensity == "25-49%" ~ (0.20 + 0.49) / 2,
+      phenophaseIntensity == "50-74%" ~ (0.5 + 0.74) / 2,
+      phenophaseIntensity == "75-94%" ~ (0.85 + 0.94) / 2,
+      phenophaseIntensity == ">= 95%" ~ (1 + 0.95) / 2
+    )
+  )
+
 # convert to numeric type explicitly
-plant_pheno$phenophaseIntensityMidpoint <- as.numeric(plant_pheno$phenophaseIntensityMidpoint )
+plant_pheno$phenophaseIntensityMidpoint <- as.numeric(plant_pheno$phenophaseIntensityMidpoint)
 
 str(plant_pheno$phenophaseIntensityMidpoint)
 ```
@@ -180,9 +190,8 @@ str(plant_pheno$phenophaseIntensityMidpoint)
 ## Plotting and fitting the data
 
 ```{r, warning=FALSE}
-ggplot(plant_pheno, 
-       aes(x = date, y = phenophaseIntensityMidpoint, color = scientificName)) +
-         geom_point() 
+ggplot(plant_pheno, aes(x = date, y = phenophaseIntensityMidpoint, color = scientificName)) +
+  geom_point() 
 ```
 
 The pattern we would expect is already visible in this first plot - the leaves come out in the spring, 
@@ -222,7 +231,7 @@ head(plant_pheno_species_mean)
 ```
 
 ```{r}
-ggplot(plant_pheno_species_mean, aes(x=date, y=phenophaseIntensityBySpecies, colour = scientificName)) +
+ggplot(plant_pheno_species_mean, aes(x = date, y = phenophaseIntensityBySpecies, colour = scientificName)) +
   geom_point()
 ```
 
@@ -240,7 +249,7 @@ plant_pheno_species_mean %>%
 Create a test function to get a rough idea for the parameters
 
 ```{r}
-dates = plant_pheno_species_mean %>% 
+dates <- plant_pheno_species_mean %>% 
   arrange(date) %>% 
   select(date)
 
@@ -288,8 +297,8 @@ resids_sq <- sapply(b_vals, function(b) {
     prediction <- 0.5*sin(2*pi/365*tulip_tree$date_numeric + b) +0.5
     residuals <- prediction - tulip_tree$phenophaseIntensityBySpecies
     sum(residuals^2)
-    
-})
+  }
+)
 ```
 
 ```{r}
@@ -322,7 +331,7 @@ b_vals <- seq(0.1, 0.8, by = 0.015)
 # create a function that does least squares for this model
 least_squares <- function(df, b_vals) {
   resids_sq <- sapply(b_vals, function(b) {
-    prediction <- 0.5*sin(2*pi/365*df$date_numeric + b) +0.5
+    prediction <- 0.5*sin(2*pi/365*df$date_numeric + b) + 0.5
     residuals <- prediction - df$phenophaseIntensityBySpecies
     sum(residuals^2)
     })
