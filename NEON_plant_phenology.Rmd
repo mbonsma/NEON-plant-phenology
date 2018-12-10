@@ -13,13 +13,19 @@ and the Smithsonian Conservation Biology Institute
 Smithsonian Environmental Research Center
 ([SERC](https://www.neonscience.org/field-sites/field-sites-map/serc)) in Maryland. 
 
-In this tutorial, we'll plot some phenology data and fit an oscillatory model to determine when different species get and lose their leaves. 
+In this tutorial, we'll plot some phenology data and fit an oscillatory model 
+to determine when different species get and lose their leaves. 
 
 ## Load and organize data
 
 ### Clean up and merge the two data frames
 
-The first part of this tutorial is a data cleanup from https://www.neonscience.org/neon-plant-pheno-data-r. There are two data files we'll be combining: the first (`phe_perindividual.csv`) contains data for each individual organism observed such as its location and scientific name, and the second (`phe_statusintensity.csv`) contains observations of several phenophases and their intensity.
+The first part of this tutorial is based on a data cleanup from
+https://www.neonscience.org/neon-plant-pheno-data-r. There are two data files 
+we'll be combining: the first (`phe_perindividual.csv`) contains data for 
+each individual organism observed such as its location and scientific name, 
+and the second (`phe_statusintensity.csv`) contains observations of several 
+phenophases and their intensity.
 
 ```{r, warning=FALSE, message=FALSE}
 library(tidyverse)
@@ -34,14 +40,16 @@ names(ind)
 names(status)
 ```
 
-We'll remove the UID field which uniquely identifies each row -- we don't need to uniquely identify entries.
+We'll remove the UID field which uniquely identifies each row -- we don't 
+need to uniquely identify entries.
 
 ```{r}
 ind <- select(ind, -uid)
 status <- select(status, -uid)
 ```
 
-Next, we remove duplicates that result from stacking tables over many months -- we don't need duplicate observations from the same date, tree, and site.
+Next, we remove duplicates that result from stacking tables over many months 
+-- we don't need duplicate observations from the same date, tree, and site.
 
 ```{r}
 ind_noD <- distinct(ind)
@@ -53,7 +61,8 @@ status_noD <- distinct(status)
 nrow(status) - nrow(status_noD) # how many rows were removed
 ```
 
-Some of the columns in `status_noD` that have the same name as those in `ind_noD` should be renamed so that we can join the two tables and keep those fields separate. 
+Some of the columns in `status_noD` that have the same name as those in `ind_noD` 
+should be renamed so that we can join the two tables and keep those fields separate. 
 
 ```{r}
 # where is there an intersection of names?
@@ -105,7 +114,10 @@ glimpse(phe_ind)
 
 ### Dealing with NAs
 
-Some columns look like they might only have NAs. We can check the proportion of NAs by first summing the number of NA values per column with `map_df()` from the `purrr` package, followed by standard `dplyr`/`tidyr` operations to reshape the data frame. 
+Some columns look like they might only have NAs. We can check the proportion 
+of NAs by first summing the number of NA values per column with `map_df()` 
+from the `purrr` package, followed by standard `dplyr`/`tidyr` operations to 
+reshape the data frame. 
 
 ```{r}
 # Some columns look like they might only have NAs. Check this:
@@ -116,7 +128,9 @@ phe_ind %>%
   arrange(desc(proportion_na)) # arrange in descending order of proportion_na
 ```
 
-Now that we've identified which columns are only NA, let's remove them from our dataset. `dplyr` offers a helpful function called `select_if()` that allows us to only keep columns satisfying a certain condition. 
+Now that we've identified which columns are only NA, let's remove them 
+from our dataset. `dplyr` offers a helpful function called `select_if()` 
+that allows us to only keep columns satisfying a certain condition. 
 
 ```{r}
 # first, define a function that checks whether not all elements are NA
@@ -140,7 +154,9 @@ plant_pheno <- phe_ind %>%
   filter(phenophaseName == "Leaves" & growthForm == "Deciduous broadleaf")
 ```
 
-Many of the columns aren't that relevant for us, but some that we're definitely interested in are `date`, `phenophaseIntensity`, and `scientificName`. Let's take a look at what kind of factors we have in the last two columns.
+Many of the columns aren't that relevant for us, but some that we're 
+definitely interested in are `date`, `phenophaseIntensity`, and `scientificName`. 
+Let's take a look at what kind of factors we have in the last two columns.
 
 ```{r}
 plant_pheno %>% 
@@ -150,25 +166,31 @@ plant_pheno %>%
   count(phenophaseIntensity)
 ```
 
-These are 7 species of tree / shrub in this subsetted dataset. Feel free to look up what the common names are for each of these; for example, *Liriodendron tulipifera*, the tulip tree, can be found along the US east coast as well as in Southern Ontario.
+These are 7 species of tree / shrub in this subsetted dataset. Feel free to 
+look up what the common names are for each of these; for example, 
+*Liriodendron tulipifera*, the tulip tree, can be found along the US east 
+coast as well as in Southern Ontario.
 
 ![Lipidoptera tulipifera, by Jean-Pol GRANDMONT - Own work, CC BY 3.0, https://commons.wikimedia.org/w/index.php?curid=9873223](image/Liriodendron_tulipifera.png)
 
-We're going to look at how the phenophase intensity for "Leaves" changes over the course of time. Let's look at the structure of the `phenophaseIntensity` column:
+We're going to look at how the phenophase intensity for "Leaves" changes over 
+the course of time. Let's look at the structure of the `phenophaseIntensity` column:
 
 ```{r}
 str(plant_pheno$phenophaseIntensity)
 ```
 
-We want to be able to use these as numbers, and since they're binned in windows of percentage, we can manually convert the bin label to the numeric midpoint of the bin. This is approximate, and there are multiple valid choices you could make for how to assign a number to each bin. To do this, we'll make use of the `case_when()` function, which allows us to `mutate()` on multiple conditions.
+We want to be able to use these as numbers, and since they're binned in windows 
+of percentage, we can manually convert the bin label to the numeric midpoint of 
+the bin. This is approximate, and there are multiple valid choices you could make 
+for how to assign a number to each bin. To do this, we'll make use of the 
+`case_when()` function, which allows us to `mutate()` on multiple conditions.
 
 ```{r}
 # convert phenophase intensities to numbers for plotting
 
-# create new column called phenophaseIntensityMidpoint
-plant_pheno <- plant_pheno %>% 
-  mutate(phenophaseIntensityMidpoint = phenophaseIntensity)
-
+# create new column called phenophaseIntensityMidpoint 
+# and fill it with the numeric bin midpoint
 plant_pheno <- plant_pheno %>% 
   mutate(
     phenophaseIntensityMidpoint = case_when(
@@ -184,10 +206,20 @@ plant_pheno <- plant_pheno %>%
 # convert to numeric type explicitly
 plant_pheno$phenophaseIntensityMidpoint <- as.numeric(plant_pheno$phenophaseIntensityMidpoint)
 
+# check the structure of the new column
 str(plant_pheno$phenophaseIntensityMidpoint)
 ```
 
+The last processing step is to make sure that the `date` column is a `Date` object.
+
+```{r}
+# convert the date column to a date
+plant_pheno$date <- as.Date(plant_pheno$date)
+```
+
 ## Plotting and fitting the data
+
+Let's plot the phenophase intensity over time, grouped by the species.
 
 ```{r, warning=FALSE}
 ggplot(plant_pheno, aes(x = date, y = phenophaseIntensityMidpoint, color = scientificName)) +
@@ -199,107 +231,123 @@ then disappear again in October. But there might be differences between species 
 in a species. One way we could try to assess this is to fit the same model to subgroups of the data and
 then compare the fitted parameters to see if there are differences. 
 
-## Fit an oscillatory model to the data
+### Fit an oscillatory model to the data
 
 Let's try to fit a sine wave to the phenophase intensity. A generic sine wave has four parameters:
 
 $$y = A \text{sin}(kx - b) + c$$
+where $k = 2\pi / T$, $T$ is the period or length of time between peaks, 
+$A$ is the amplitude, $b$ is the phase, and $c$ is the vertical shift or offset. 
+
+Let's plot a sine wave:
 
 ```{r}
 # plot a sine wave
-
 x <- seq(0, 3, 0.01)
 A <- 1
 k <- 2*pi
-b <- 0
+b <- 0.5
 c <- 0
 
 qplot(x, A*sin(k*x-b)+c) +
   geom_line()
-
 ```
 
-Let's calculate the mean phenophase intensity across individuals in the same species.
+In order to use the date as a numeric x-axis for fitting purposes, 
+we need to convert it from a `date` object to a numeric object. 
 
 ```{r}
-plant_pheno_species_mean <- plant_pheno %>% 
-  filter(!is.na(phenophaseIntensityMidpoint)) %>% 
-  group_by(scientificName, date) %>% 
-  summarise(phenophaseIntensityBySpecies = mean(phenophaseIntensityMidpoint))
-
-head(plant_pheno_species_mean)
+# check the structure of the date column
+str(plant_pheno$date)
 ```
 
-```{r}
-ggplot(plant_pheno_species_mean, aes(x = date, y = phenophaseIntensityBySpecies, colour = scientificName)) +
-  geom_point()
-```
-
-Now we have seven timeseries, one for each species. Let's check to see if there are any observations that are doubled for a given date --- we want single observations per species here.
-
-```{r}
-# check to see if there is ever more than one observation for a given date - want nothing returned here
-
-plant_pheno_species_mean %>% 
-  group_by(scientificName) %>% 
-  count(date) %>% 
-  filter(n > 1)
-```
-
-Create a test function to get a rough idea for the parameters
-
-```{r}
-dates <- plant_pheno_species_mean %>% 
+```{r, message=FALSE}
+# create a list of all the dates in ascending order
+dates = plant_pheno %>% 
   arrange(date) %>% 
   select(date)
 
+# create a function to subtract two dates
 subtract_dates <- function(date1, date2) {
   result <- date1 - date2
 }
 
+# create a numeric dates list to use in fitting
 dates_numeric <- mapply(subtract_dates,
                  dates$date, # first argument in subtract_dates function 
                  dates$date[1]) # second argument in subtract_dates function - the first date
 
-# add the numeric dates to the dataframe
-plant_pheno_species_mean$date_numeric <- mapply(subtract_dates, 
-                                                plant_pheno_species_mean$date,
-                                                dates$date[1])
+# add numeric dates to the dataframe
+plant_pheno$date_numeric <- mapply(subtract_dates, 
+                                                plant_pheno$date,
+                                                dates$date[1]) # subtract the first date
+```
 
+```{r}
+# drop rows that have NA in phenophaseIntensityMidpoint column
+plant_pheno <- 
+  plant_pheno[!is.na(plant_pheno$phenophaseIntensityMidpoint),]
+```
+
+Let's fit a particular individual's phenophase intensity.
+
+```{r}
+# find an individual
+plant_pheno %>% 
+  filter(scientificName == "Liriodendron tulipifera L.") %>% 
+  select(scientificName, individualID) %>% 
+  head(1)
+
+# make a data frame with one individual
+tulip_tree <- plant_pheno %>% 
+  filter(individualID == "NEON.PLA.D02.SCBI.06071")
+```
+
+Now we will create a test sine function to get a rough idea for the 
+parameters.
+
+```{r}
 # period = 365 days
-# wavenumber of sine function = 2 * pi/lambda 
+# wavenumber of sine function = 2 * pi/period 
 
-sine_model <- function(x, amplitude, wavelength, phase, offset) {
-  return(amplitude*sin(2*pi/wavelength*x + phase) + offset)
+sine_model <- function(x, amplitude, period, phase, offset) {
+  return(amplitude*sin(2*pi/period*x + phase) + offset)
 }
+A <- 0.5 # phenophase intensity values go between 0 and 1
+offset <- 0.5 # add 0.5 to make min 0 and max 1
+period <- 365 # number of days in a year
+phase <- 0.5 # this is a guess
 
-guess_curve <- sine_model(dates_numeric, 0.5, 365, 0.5, 0.5)
+guess_curve <- sine_model(dates_numeric, A, period, phase, offset)
 ```
 
-
 ```{r}
-qplot(x = dates$date, y = guess_curve) +
-  geom_point(data = plant_pheno_species_mean, 
-       aes(x = date, y = phenophaseIntensityBySpecies, colour = scientificName))
+qplot(x = dates$date, y = guess_curve) + # guess data
+  geom_point(data = tulip_tree,  # actual data
+       aes(x = date, y = phenophaseIntensityMidpoint, colour = scientificName)) 
 ```
 
+We will only fit $b$, the horizontal shift, since we already know the other 
+parameters: we know that the minimum and maximum must be 0 and 1 since the 
+intensity goes from 0 to 100%, and this sets both $c$ and $A$.
+We also know $k$, since we know that the oscillation should go around once in a year (365 days).
+If we were being more fancy, we might want to take into account things like temperature and leap years;
+there is a `pheno` package in R specifically for plotting and analyzing phenological data.
 
 ```{r}
-
 # Make a range of b parameter values to try
 b_vals <- seq(0.2, 0.8, by = 0.01)
-
-tulip_tree <- plant_pheno_species_mean %>%
-  filter(scientificName == "Liriodendron tulipifera L.") 
 
 # use the function 'sapply' to loop over b_vals list
 resids_sq <- sapply(b_vals, function(b) {
     prediction <- 0.5*sin(2*pi/365*tulip_tree$date_numeric + b) +0.5
-    residuals <- prediction - tulip_tree$phenophaseIntensityBySpecies
+    residuals <- prediction - tulip_tree$phenophaseIntensityMidpoint
     sum(residuals^2)
-  }
-)
+})
 ```
+
+As before, plotting the sum of the residuals squards vs. the fit parameter 
+will show us if it worked: the best fit is the minimum of the curve.
 
 ```{r}
 qplot(b_vals, resids_sq)
@@ -317,70 +365,93 @@ b_fit
 Finally, let's plot the fit against the original data:
 
 ```{r}
-ggplot(data = tulip_tree, aes(x = date, y = phenophaseIntensityBySpecies)) +
+ggplot(data = tulip_tree, aes(x = date, y = phenophaseIntensityMidpoint)) +
   geom_point() + 
-  geom_point(aes(x = date, y = 0.5*sin(2*pi/365*tulip_tree$date_numeric + b_fit) +0.5, colour = 'b'))
+  geom_point(aes(x = date, y = 0.5*sin(2*pi/365*tulip_tree$date_numeric + b_fit) +0.5, colour = 'red'))
 ```
 
-Not bad! To wrap up, let's compare the fits for the rest of the species.
+Not bad! Next, we'll do this for every single individual in the entire dataset. 
+With fits for each individual, we can look at the distribution of the phase shifts
+for each species to get a sense of when each species gets its leaves.
+
+### Fit each individual separately
 
 ```{r}
 # Make a range of b parameter values to try
-b_vals <- seq(0.1, 0.8, by = 0.015)
+b_vals <- seq(0, 1.1, by = 0.015)
 
 # create a function that does least squares for this model
 least_squares <- function(df, b_vals) {
   resids_sq <- sapply(b_vals, function(b) {
-    prediction <- 0.5*sin(2*pi/365*df$date_numeric + b) + 0.5
-    residuals <- prediction - df$phenophaseIntensityBySpecies
+    prediction <- 0.5*sin(2*pi/365*df$date_numeric + b) +0.5
+    residuals <- prediction - df$phenophaseIntensityMidpoint
     sum(residuals^2)
     })
   return(data.frame(b_vals, resids_sq))
 }
 
 # create a data frame that contains the residuals grouped by species
-resids_sq_all_species <- plant_pheno_species_mean %>%
-  group_by(scientificName) %>% 
+resids_sq_individuals <- plant_pheno %>%
+  group_by(individualID, scientificName) %>% 
   do(data.frame(val=least_squares(., b_vals)))
-
-resids_sq_all_species
 ```
 
 ```{r}
-ggplot(resids_sq_all_species, aes(x=val.b_vals, y = val.resids_sq, colour = scientificName)) +
+ggplot(resids_sq_individuals, aes(x=val.b_vals, y = val.resids_sq, colour = scientificName)) +
   geom_point()
 ```
-Get the best fit $b$ value for each species:
+Get the best fit $b$ value for each individual:
 
 ```{r}
-b_df <- resids_sq_all_species %>% 
-  group_by(scientificName) %>% 
-  summarize(fit = b_vals[which(val.resids_sq== min(val.resids_sq))])
+# store the best fit values in a new data frame
+b_df_all <- resids_sq_individuals %>% 
+  group_by(individualID, scientificName) %>% 
+  summarize(phase = b_vals[which(val.resids_sq== min(val.resids_sq))])
 
-b_df
+head(b_df_all)
 ```
+
+We have best fit values for the phase for every individual plant in our dataset.
+To visualize this, we will make a violin plot of the phases, grouped by species.
 
 ```{r}
-
-calculate_fit_curve <- function(df) {
-  y <- 0.5*sin(2*pi/365*df$date_numeric + df$fit) +0.5
-  date <- df$date
-  return(data.frame(date, y))
-}
-
-# add fits to data frame
-plant_pheno_species_mean <- inner_join(plant_pheno_species_mean, b_df)
-
-plant_pheno_species_mean
-
-fit_curves <- plant_pheno_species_mean %>% 
-  group_by(scientificName) %>% 
-  do(data.frame(calculate_fit_curve(.)))
-
-fit_curves
-
-ggplot(data = plant_pheno_species_mean, aes(x = date, y = phenophaseIntensityBySpecies, 
-                                            colour = scientificName)) +
-  geom_point() + 
-  geom_point(data= fit_curves, aes(x = date, y = y, colour = scientificName))
+# violin plot
+ggplot(b_df_all, aes(x = scientificName, y = phase, colour = scientificName)) +
+  geom_violin(scale = 'count', draw_quantiles = 0.5) +
+  geom_jitter(height = 0, width = 0.1) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
 ```
+
+The phase $b$ is a positive number for each of these, and in our model we fit the curve
+like this:
+
+$$y = A\text{sin}(kx + b) + c$$
+A positive $b$ shifts the curve to the left, so our model suggests that species with larger 
+$b$ either get their leaves earlier, lose their leaves earlier, or peak earlier, or some 
+combination of all three. I'm not a phenologist,
+but we can do some reading to see if the general pattern we observe is really there:
+*Lonicera maackii*, Amur honeysuckle (an invasive species), does in fact leaf out very 
+early in the spring and keeps its leaves longer than other plants, 
+according to [this paper](http://www.bioone.org/doi/abs/10.3159/08-RA-109.1)
+by McEwan et al. (2009).
+
+This actually suggests a limitation to our approach: by fitting the same period of sine 
+curve to each dataset, we have no information on how long the leaf season is for each 
+plant: we have no way of distinguishing a plant that leafs earlier and loses its leaves 
+earlier from a plant that peaks earlier and keeps its leaves longer.
+It's hard to interpret what $b$ actually means in terms of the phenophase. Let's plot
+the smallest and largest $b$ species together:
+
+```{r}
+plant_pheno %>% 
+  filter(taxonID == "LOMA6" | taxonID == "JUNI") %>% # easier than typing the full scientific name
+  ggplot(aes(x=date, y = phenophaseIntensityMidpoint, colour = scientificName)) +
+  geom_point()
+```
+
+By examining these two species side by side, we can see that *Lonicera maackii*
+peaks at about the same time as *Juglans nigra*, but it gets leaves earlier 
+and keeps its leaves later. To actually distinguish each of these events, 
+we would need a more complicated model with more fit parameters.
