@@ -63,6 +63,8 @@ nrow(status) - nrow(status_noD) # how many rows were removed
 
 Some of the columns in `status_noD` that have the same name as those in `ind_noD` 
 should be renamed so that we can join the two tables and keep those fields separate. 
+When using `rename()`, remember that each new column name is written first,
+followed by the previous name (i.e. `new_name = old_name`).
 
 ```{r}
 # where is there an intersection of names?
@@ -75,6 +77,9 @@ status_noD <- rename(status_noD, editedDateStat = editedDate,
         samplingProtocolVersionStat = samplingProtocolVersion, 
         remarksStat = remarks, dataQFStat = dataQF)
 ```
+
+Next, we'll convert the date column to R's `Date` object type. This
+makes R correctly interpret dates when performing operations down the line.
 
 ```{r}
 # convert column to date class
@@ -119,6 +124,12 @@ of NAs by first summing the number of NA values per column with `map_df()`
 from the `purrr` package, followed by standard `dplyr`/`tidyr` operations to 
 reshape the data frame. 
 
+`map_df` works by performing an operation on each of the columns in its input
+data frame and returning a data frame as output. The `~` character is shorthand
+for 'function', and tells R that the `.` within `is.na()` refers to individual
+columns and not the entire input data frame (as would otherwise be the case
+with the `%>%` operator). 
+
 ```{r}
 # Some columns look like they might only have NAs. Check this:
 phe_ind %>% 
@@ -131,6 +142,11 @@ phe_ind %>%
 Now that we've identified which columns are only NA, let's remove them 
 from our dataset. `dplyr` offers a helpful function called `select_if()` 
 that allows us to only keep columns satisfying a certain condition. 
+`select_if` is an example of a _scoped_ function, which apply operations
+on all variables within a specified subset. Where `select` requires us
+to specify column names to keep, `select_if` allows us to instead retain or remove
+columns based on a condition -- which in our case pertains to whether
+the columns contain only NAs. 
 
 ```{r}
 # first, define a function that checks whether not all elements are NA
@@ -138,7 +154,7 @@ not_all_na <- function(x) {
   return(!all(is.na(x))) # if all of the vector is just NA, return FALSE
 }
 
-# select_if is a version of select that allows us to drop all-NA columns using the above function
+# select_if can now use the above function
 phe_ind <- phe_ind %>% 
   select_if(not_all_na)
 
@@ -185,6 +201,10 @@ of percentage, we can manually convert the bin label to the numeric midpoint of
 the bin. This is approximate, and there are multiple valid choices you could make 
 for how to assign a number to each bin. To do this, we'll make use of the 
 `case_when()` function, which allows us to `mutate()` on multiple conditions.
+`case_when` is very useful if there are multiple conditions that our `mutate()`
+operation needs to account for, as opposed to `ifelse()`, which can only handle
+one condition at a time. To use `case_when`, we first out the condition 
+followed by a `~` and the corresponding operation for that condition. 
 
 ```{r}
 # convert phenophase intensities to numbers for plotting
