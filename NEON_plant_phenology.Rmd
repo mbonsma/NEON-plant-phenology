@@ -35,10 +35,13 @@ ind <- read_csv('NEON-pheno-temp-timeseries/pheno/phe_perindividual.csv')
 
 status <- read_csv('NEON-pheno-temp-timeseries/pheno/phe_statusintensity.csv')
 
+temp <- read_csv('NEON-pheno-temp-timeseries/temp/SAAT_30min.csv') # 30 minute averages of 1Hz observations of air temperature
+
 names(ind)
 
 names(status)
 ```
+
 
 We'll remove the UID field which uniquely identifies each row -- we don't 
 need to uniquely identify entries.
@@ -230,6 +233,138 @@ The pattern we would expect is already visible in this first plot - the leaves c
 then disappear again in October. But there might be differences between species and between individuals 
 in a species. One way we could try to assess this is to fit the same model to subgroups of the data and
 then compare the fitted parameters to see if there are differences. 
+
+### Degree Days
+
+
+Get the max and min temperatures to calculate Growing Degree Days using the Average Method.
+```{r}
+temp$date <- as.Date(temp$startDateTime)
+
+temp$tempSingleMean <- as.numeric(temp$tempSingleMean)
+```
+
+```{r}
+head(temp)
+```
+
+
+```{r}
+temp_max_min <- temp %>% 
+  filter(!is.na(tempSingleMean)) %>% 
+  group_by(date, siteID) %>% 
+  summarize(max = max(tempSingleMean), min = min(tempSingleMean))
+
+head(temp_max_min)
+
+
+```
+
+```{r}
+# calculate Growing Degree Days
+baseline_temp <- 10 # degrees Celsius
+
+
+
+temp_max_min$GDD <- (temp_max_min$max + temp_max_min$min) / 2 - baseline_temp # calculate GDD
+
+# cutoff GDD at 0: negative values are assumed to be 0.
+temp_max_min <- temp_max_min %>%  mutate(
+    GDD = case_when(
+      GDD < 0 ~ 0,
+      GDD >= 0 ~ GDD))
+
+
+```
+
+```{r}
+temp_max_min$year <- format(temp_max_min$date, "%Y") # make a new column with the year
+
+# calculate cumulative GDD for each site and year separately
+temp_max_min <- temp_max_min %>% 
+  group_by(siteID, year) %>% 
+  arrange(date) %>% 
+  mutate(GDD_cumulative = cumsum(GDD))
+
+```
+
+
+```{r}
+
+# where is there an intersection of names?
+sameName <- intersect(names(temp_max_min), names(plant_pheno))
+sameName
+
+temp_max_min_2016 <- filter(temp_max_min, year == 2016)
+
+plant_pheno_temp <- left_join(temp_max_min_2016, plant_pheno)
+
+head(plant_pheno_temp)
+```
+
+
+```{r}
+ggplot(plant_pheno_temp, aes(x = GDD_cumulative, y = phenophaseIntensityMidpoint, color = scientificName)) +
+  geom_point() 
+```
+
+### Fit an oscillatory model - GDD
+
+CAUTION: ADJUST PERIOD - PERHAPS SHOULD BE FITTING PERIOD INSTEAD?
+
+```{r}
+# Make a range of b parameter values to try
+b_vals <- seq(1, 6, by = 0.015)
+
+# create a function that does least squares for this model
+least_squares <- function(df, b_vals) {
+  resids_sq <- sapply(b_vals, function(b) {
+    prediction <- 0.5*sin(2*pi/365*df$GDD_cumulative + b) +0.5
+    residuals <- prediction - df$phenophaseIntensityMidpoint
+    sum(residuals^2)
+    })
+  return(data.frame(b_vals, resids_sq))
+}
+
+# create a data frame that contains the residuals grouped by species
+resids_sq_individuals <- plant_pheno_temp %>%
+  group_by(individualID, scientificName) %>% 
+  do(data.frame(val=least_squares(., b_vals)))
+```
+
+```{r}
+ggplot(resids_sq_individuals, aes(x=val.b_vals, y = val.resids_sq, colour = scientificName)) +
+  geom_point()
+```
+Get the best fit $b$ value for each individual:
+
+```{r}
+resids_sq_individuals <- filter(resids_sq_individuals, !is.na(val.resids_sq))
+```
+
+
+```{r}
+# store the best fit values in a new data frame
+b_df_all <- resids_sq_individuals %>% 
+  group_by(individualID, scientificName) %>% 
+  summarize(phase = b_vals[which(val.resids_sq== min(val.resids_sq))])
+
+head(b_df_all)
+```
+
+We have best fit values for the phase for every individual plant in our dataset.
+To visualize this, we will make a violin plot of the phases, grouped by species.
+
+```{r}
+# violin plot
+ggplot(b_df_all, aes(x = scientificName, y = phase, colour = scientificName)) +
+  geom_violin(scale = 'count', draw_quantiles = 0.5) +
+  geom_jitter(height = 0, width = 0.1) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
 
 ### Fit an oscillatory model to the data
 
