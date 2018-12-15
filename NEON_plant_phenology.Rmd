@@ -142,7 +142,7 @@ phe_ind %>%
 Now that we've identified which columns are only NA, let's remove them 
 from our dataset. `dplyr` offers a helpful function called `select_if()` 
 that allows us to only keep columns satisfying a certain condition. 
-`select_if` is an example of a _scoped_ function, which apply operations
+`select_if` is an example of a _scoped_ function; scoped functions apply operations
 on all variables within a specified subset. Where `select` requires us
 to specify column names to keep, `select_if` allows us to instead retain or remove
 columns based on a condition -- which in our case pertains to whether
@@ -203,7 +203,7 @@ for how to assign a number to each bin. To do this, we'll make use of the
 `case_when()` function, which allows us to `mutate()` on multiple conditions.
 `case_when` is very useful if there are multiple conditions that our `mutate()`
 operation needs to account for, as opposed to `ifelse()`, which can only handle
-one condition at a time. To use `case_when`, we first out the condition 
+one condition at a time. To use `case_when`, we first write out the condition 
 followed by a `~` and the corresponding operation for that condition. 
 
 ```{r}
