@@ -77,8 +77,8 @@ qplot(x = years, y = lynx) +
   geom_line()
 
 # optional: make data frame 
-df = data.frame(lynx)
-df["time"] = years
+lynx_df = data.frame(lynx)
+lynx_df["time"] = years
 
 # the time between peaks is about 10 years. 
 ```
