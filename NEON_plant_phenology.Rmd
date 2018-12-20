@@ -1,6 +1,8 @@
 ---
-title: "Plotting and fitting plant phylogeny data"
+title: "Numerically fitting a model to plant phenology data"
 author: "Madeleine Bonsma-Fisher and Ahmed Hasan"
+output: pdf_document
+bibliography: NEON_phenology.bib
 ---
 
 ## Introduction
@@ -39,6 +41,7 @@ names(ind)
 
 names(status)
 ```
+
 
 We'll remove the UID field which uniquely identifies each row -- we don't 
 need to uniquely identify entries.
@@ -251,6 +254,7 @@ then disappear again in October. But there might be differences between species 
 in a species. One way we could try to assess this is to fit the same model to subgroups of the data and
 then compare the fitted parameters to see if there are differences. 
 
+
 ### Fit an oscillatory model to the data
 
 Let's try to fit a sine wave to the phenophase intensity. A generic sine wave has four parameters:
@@ -454,8 +458,7 @@ combination of all three. I'm not a phenologist,
 but we can do some reading to see if the general pattern we observe is really there:
 *Lonicera maackii*, Amur honeysuckle (an invasive species), does in fact leaf out very 
 early in the spring and keeps its leaves longer than other plants, 
-according to [this paper](http://www.bioone.org/doi/abs/10.3159/08-RA-109.1)
-by McEwan et al. (2009).
+according to [this paper](http://www.bioone.org/doi/abs/10.3159/08-RA-109.1) [@Mcewan2009].
 
 This actually suggests a limitation to our approach: by fitting the same period of sine 
 curve to each dataset, we have no information on how long the leaf season is for each 
@@ -475,3 +478,142 @@ By examining these two species side by side, we can see that *Lonicera maackii*
 peaks at about the same time as *Juglans nigra*, but it gets leaves earlier 
 and keeps its leaves later. To actually distinguish each of these events, 
 we would need a more complicated model with more fit parameters.
+
+When phenologists model phenophase changes, they often use *growing degree
+days* (GDD) instead of the true date, since plants respond to environmental signals
+like temperature and not to the calendar date. In the extension below
+we will calculate cumulative growing degree days and plot the phenophase 
+intensity as above vs. cumulative growing degree days. 
+
+## Extension - Growing Degree Days
+
+There are several methods to calculate degree days [@Battel2017; @Nugent2004; @Miller2018]. 
+Here we will use a simple method calculated by averaging the maximum and minimum 
+temperatures in a day and subtracting a base temperature below which no growth is expected:
+
+$$\text{GDD} = \frac{\text{max temp} - \text{min temp}}{2} - \text{base temp}$$ 
+
+Negative GDD values are set to zero. To choose a base temperature, we ideally need to know 
+how the species we're investigating grows. For illustration purposes here, we'll choose
+a base temperature of 10 degrees Celsius (50 degrees Fahrenheit).
+
+To combine this information with the phenology information above, we will use air temperature 
+measurements collected every 30 minutes at two of the NEON sites we're looking at.
+
+```{r, message = FALSE}
+# 30 minute averages of 1Hz observations of air temperature in degrees Celsius
+temp <- read_csv('NEON-pheno-temp-timeseries/temp/SAAT_30min.csv') 
+
+# what are the column names?
+names(temp)
+```
+
+First, let's convert the date and time column to a date column named `date`, and the temperature measurements to a numeric column. 
+
+```{r}
+temp <- temp %>%
+    mutate(date = as.Date(startDateTime),
+           tempSingleMean = as.numeric(tempSingleMean))
+```
+
+We need the max and min temperatures to calculate growing degree days using the formula above.
+Here, we'll create a new data frame called `temp_max_min` that has the date, site ID, and max and min temperatures for that day. 
+
+```{r}
+# create temp_max_min data frame
+temp_max_min <- temp %>% 
+  filter(!is.na(tempSingleMean)) %>% # remove NA values from temperature measurements
+  group_by(date, siteID) %>% 
+  # create max and min columns
+  summarize(max = max(tempSingleMean), min = min(tempSingleMean)) 
+
+head(temp_max_min, 3)
+```
+
+Next, we'll actually calcuale growing degree days. We define a baseline temperature of 10 Celsius,
+then average the `max` and `min` columns and subtract the baseline temperature. Finally, 
+we use `mutate` and `case_when` to convert negative GDD values to zero.
+
+
+```{r}
+# define baseline temp
+baseline_temp <- 10 # degrees Celsius
+# calculate GDD and assign to new column
+temp_max_min$GDD <- (temp_max_min$max + temp_max_min$min) / 2 - baseline_temp 
+
+# cut off GDD at 0: negative values are assumed to be 0.
+temp_max_min <- temp_max_min %>%  mutate(
+    GDD = case_when(
+      GDD < 0 ~ 0,
+      GDD >= 0 ~ GDD))
+```
+
+We want to be able to group these results by year, since GDD resets at the start of each growing season.
+We create a new column `year` by formatting the `date` column to select just the year.
+
+```{r}
+temp_max_min$year <- format(temp_max_min$date, "%Y") # make a new column with the year
+```
+
+Now we can calculate the cumulative growing degree days - the cumulative effect of temperature that 
+the plant will feel. We group by year and site, since temperature measurements are specific to site
+and cumulative GDD should reset at the start of each year.
+
+```{r}
+# calculate cumulative GDD for each site and year separately
+temp_max_min <- temp_max_min %>% 
+  group_by(siteID, year) %>% 
+  arrange(date) %>% 
+  mutate(GDD_cumulative = cumsum(GDD))
+
+head(temp_max_min, 3)
+```
+
+To plot phenophase vs. GDD, we will join this temperature data with the plant_pheno data we had
+from before. First, we find which columns are overlapping to confirm that we want to join on those,
+and then we filter for only the year 2016 since the 2015 temperature data didn't start until April.
+
+```{r}
+
+# where is there an intersection of names?
+sameName <- intersect(names(temp_max_min), names(plant_pheno))
+sameName
+
+# take just the year 2016 - it's a complete year
+temp_max_min_2016 <- filter(temp_max_min, year == 2016)
+
+# create a new data frame with the results of the join
+plant_pheno_temp <- left_join(temp_max_min_2016, plant_pheno)
+
+head(plant_pheno_temp, 3)
+```
+
+Let's plot phenophase intensity, coloured by species, vs. cumulative GDD. We can see a nice pattern - 
+all the plants accumulate leaf cover as GDD accumulates. 
+
+```{r, warning = FALSE}
+ggplot(plant_pheno_temp, 
+       aes(x = GDD_cumulative, 
+           y = phenophaseIntensityMidpoint, 
+           color = scientificName)) + 
+  geom_point() 
+```
+
+Realistically we should only be looking at leaves coming out, not leaf loss in the fall -
+there's probably a better model for leaf loss than GDD. We can filter out all data with 
+`GDD_cumulative` $< 1000$, since by that point all plants are at 95-100% cover. 
+
+```{r, warning = FALSE}
+plant_pheno_temp %>% 
+  filter(GDD_cumulative <= 1000) %>% 
+  ggplot(aes(x = GDD_cumulative, 
+             y = phenophaseIntensityMidpoint, 
+             color = scientificName)) +
+   geom_point(alpha = 0.5) 
+```
+
+Here we get a hint of of the same information we saw earlier, namely that some species
+get their leaves earlier than others. We could fit this data to get a quantitative estimate
+of how leaf cover depends on GDD. 
+
+# References
