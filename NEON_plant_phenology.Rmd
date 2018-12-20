@@ -491,9 +491,9 @@ names(temp)
 First, let's convert the date and time column to a date column named `date`, and the temperature measurements to a numeric column. 
 
 ```{r}
-temp$date <- as.Date(temp$startDateTime)
-
-temp$tempSingleMean <- as.numeric(temp$tempSingleMean)
+temp <- temp %>%
+    mutate(date = as.Date(startDateTime),
+           tempSingleMean = as.numeric(tempSingleMean))
 ```
 
 We need the max and min temperatures to calculate growing degree days using the formula above.
