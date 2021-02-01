@@ -1,8 +1,9 @@
 ---
-title: "Numerically fitting a model to plant phenology data"
+title: "Working with plant phenology data and fitting a nonlinear model using least squares in R"
 author: "Madeleine Bonsma-Fisher and Ahmed Hasan"
 output: pdf_document
 bibliography: NEON_phenology.bib
+urlcolor: blue
 ---
 
 ## Introduction
@@ -370,7 +371,7 @@ resids_sq <- sapply(b_vals, function(b) {
 })
 ```
 
-As before, plotting the sum of the residuals squards vs. the fit parameter 
+Plotting the sum of the residuals squards vs. the fit parameter 
 will show us if it worked: the best fit is the minimum of the curve.
 
 ```{r}
@@ -378,7 +379,7 @@ qplot(b_vals, resids_sq)
 ```
 
 We can see visually that the minimum is around $b = 0.5$, but to extract that number 
-from the list we can use the function `which` as before:
+from the list we can use the function `which`:
 
 ```{r}
 best_fit <- which(resids_sq == min(resids_sq))

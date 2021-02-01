@@ -1,7 +1,10 @@
 ---
-title: "Faculty notes - Plotting and fitting plant phylogeny data"
+title: "Faculty notes - Working with plant phenology data and fitting a nonlinear model using least squares in R"
 author: "Madeleine Bonsma-Fisher and Ahmed Hasan"
-output: html_notebook
+output:
+  pdf_document: default
+  html_notebook: default
+urlcolor: blue
 ---
 
 ## Overview of module
@@ -10,27 +13,45 @@ This module was presented as part of a participatory live-coding class for third
 fourth-year undergraduate ecology students. In this lesson, we plot a subset of NEON 
 phenology data and fit an oscillatory model to determine when different species get and 
 lose their leaves. The module contains an optional section that was not presented in 
-class on calculating growing degree days and plotting leaf cover vs. growing degree days.
+class on calculating growing degree days (GDD) and plotting leaf cover vs. growing degree days.
 The student notes are designed to be presented through participatory live-coding:
 the instructor's live coding is projected to the class while they follow along on their own computers.
 
 * **Estimated time:** 1.5 hours (participatory live-coding, not including GDD extension)
 * **Target audience:** 3rd to 4th year ecology or biology students
-* **Prerequisites:** familiarity with R and the [tidyverse](https://www.tidyverse.org/).
+* **Student prerequisites:** 
+    * Ecological concepts:
+        * Basics of plant phenology
+        * Basics of population cycling
+    * Quantitative skills:
+        * Familiarity with R and the [tidyverse](https://www.tidyverse.org/).
+        * Familiarity with the concept of least squares fitting and minimizing the sum of squares of residuals
 
 ## Learning objectives
-> - Work with and plot time series data
-> - Fit models to ecological time series data
-> - Explore phenological concepts 
+
+Upon completion of the module, students will be able to:
+
+- Import and manipulate discrete time series data in R:
+    - Join data frames together
+    - Convert dates to the `Date` class in R
+    - Use `dplyr` functions such as `group_by`, `mutate`, `case_when` to restructure data
+- Plot time series data using the `ggplot2` package in R
+- Define custom functions in R and apply them to vectors with `mapply` and `sapply`
+- Fit a sine wave model to ecological time series data using least squares
+- Explain the following ecological concepts:
+    - Phenology 
+    - Growing Degree Days (if optional extension completed)
 
 ## Data description
 
 The data used in this module is a subset of NEON plant phenology data, downloaded from
 the NEON data tutorial 
 ["Work With NEON's Plant Phenology Data"](https://www.neonscience.org/neon-plant-pheno-data-r).
-The data download link is [here](https://ndownloader.figshare.com/files/9012085).
+The data download link is [here](https://ndownloader.figshare.com/files/9012085) (https://ndownloader.figshare.com/files/9012085).
 The three files used are `pheno/phe_perindividual.csv`, `pheno/phe_statusintensity.csv`, and 
 `temp/SAAT_30min.csv`.
+
+These data are from the three terrestrial field sites in NEON’s Domain 02, the Mid Atlantic, and include BLAN, SCBI, and SERC. For field site descriptions and full names see the NEON field sites webpages (https://www.neonscience.org/field-sites/field-sites-map). The data are from June 2015 to December 2016. Faculty who want to use a more recent data or data from another location are encouraged to use the NEON data portal (data.neonscience.org) to create a customized data set. 
 
 ## Teaching challenges to address
 
